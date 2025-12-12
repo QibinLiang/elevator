@@ -3,7 +3,9 @@ This project is the source code of the assignment of Algorithm Theory(MUST DMIE0
 
 # Authors
 Qibin Liang <physechan@gmail.com>
+
 Ning Sun <sunning1888@gmail.com>
+
 ShuangShuang Zou <547685355@qq.com>
 
 # Usage
