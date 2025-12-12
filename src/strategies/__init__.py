@@ -9,3 +9,4 @@
 
 from .FCFS import FCFSScheduler
 from .SCAN import SCANScheduler
+from .LAH import LAHScheduler

@@ -36,17 +36,19 @@ else:
     import matplotlib.pyplot as plt
 
 DEFAULT_PARAM_GRID = {
-    "n_floors": [20, 30, 40, 50],
-    "n_elevators": [1, 2, 3, 5, 8],
-    "elevator_capacity": [5, 10, 15, 20],
-    "n_requests": [20, 40, 60, 80, 100],
+    "n_floors": [8, 16, 32],
+    "n_elevators": [1,2,3,5,8],
+    "elevator_capacity": [8, 12, 16],
+    "n_requests": [300],
     "req_max_time": [100],
-    "ele_max_time": [1500],
+    "ele_max_time": [1e6],
+    "request_distribution": ["morning_peak", "evening_peak", "uniform"],
 }
 
 DEFAULT_SCHEDULERS = {
     "fcfs": FCFSScheduler,
     "scan": SCANScheduler,
+    "lah": LAHScheduler,
 }
 
 
@@ -62,6 +64,14 @@ def parse_int_list(arg, default):
     if isinstance(arg, list):
         return arg
     return [int(x) for x in str(arg).split(",") if str(x).strip()]
+
+
+def parse_str_list(arg, default):
+    if arg is None:
+        return default
+    if isinstance(arg, list):
+        return arg
+    return [x.strip() for x in str(arg).split(",") if x.strip()]
 
 
 def resolve_schedulers(names):
@@ -84,6 +94,7 @@ def build_param_grid(args):
         "n_requests": parse_int_list(args.n_requests_list, DEFAULT_PARAM_GRID["n_requests"]),
         "req_max_time": parse_int_list(args.req_max_time_list, DEFAULT_PARAM_GRID["req_max_time"]),
         "ele_max_time": parse_int_list(args.ele_max_time_list, DEFAULT_PARAM_GRID["ele_max_time"]),
+        "request_distribution": parse_str_list(args.request_distribution_list, DEFAULT_PARAM_GRID["request_distribution"]),
     }
 
 
@@ -100,8 +111,9 @@ def run_single_configuration(config, scheduler_cls, n_exps):
         random_seed=None,
         ele_max_time=config["ele_max_time"],
         req_max_time=config["req_max_time"],
-        smoothing_load=False,
+        smoothing_load=True,
         scheduler_cls=scheduler_cls,
+        request_distribution=config.get("request_distribution", "uniform"),
     )
     metrics = evaluator.eval_n_experiments(n_exps=n_exps)
     completion_rate = (
@@ -144,6 +156,7 @@ def save_results(results, output_dir):
         "elevator_capacity",
         "n_requests",
         "req_max_time",
+        "request_distribution",
         "ele_max_time",
         "total_requests",
         "completed_requests",
@@ -211,6 +224,7 @@ def plot_param_dashboard(results, plots_dir, scheduler_classes):
     scheduler_colors = {
         "FCFSScheduler": "#4c72b0",
         "SCANScheduler": "#c44e52",
+        "LAHScheduler": "#55a868",
     }
     handles = {}
     for ax, (metric, param_name, title) in zip(axes, configs):
@@ -248,6 +262,41 @@ def plot_param_dashboard(results, plots_dir, scheduler_classes):
     plt.close(fig)
     logger.info("Saved plot: %s", plot_path)
     return plot_path
+
+
+def plot_distribution_vs_elevators(results, metric, plots_dir, scheduler_classes):
+    """Compare different request distributions for each scheduler across elevator counts."""
+    plots_dir.mkdir(parents=True, exist_ok=True)
+    for scheduler_cls in scheduler_classes:
+        name = scheduler_cls.__name__
+        scheduler_results = [r for r in results if r["scheduler"] == name]
+        if not scheduler_results:
+            continue
+        distributions = sorted({r.get("request_distribution", "uniform") for r in scheduler_results})
+        if not distributions:
+            continue
+
+        plt.figure(figsize=(8, 5))
+        for dist in distributions:
+            dist_results = [r for r in scheduler_results if r.get("request_distribution", "uniform") == dist]
+            aggregated = aggregate_metric(dist_results, "n_elevators", metric)
+            x_vals = sorted(aggregated.keys())
+            if not x_vals:
+                continue
+            y_vals = [aggregated[x] for x in x_vals]
+            plt.plot(x_vals, y_vals, marker="o", label=dist)
+
+        plt.xlabel("n_elevators")
+        plt.ylabel(metric)
+        plt.title(f"{name}: {metric} vs n_elevators by request distribution")
+        plt.legend(title="request_distribution")
+        plt.grid(alpha=0.3)
+        plt.tight_layout()
+
+        plot_path = plots_dir / f"dist_vs_elevators_{name}_{metric}.png"
+        plt.savefig(plot_path)
+        plt.close()
+        logger.info("Saved plot: %s", plot_path)
 
 
 def plot_scheduler_combo_bar(results, metrics, plots_dir, scheduler_classes):
@@ -380,6 +429,12 @@ def generate_all_plots(results, plots_dir, scheduler_classes):
         plots_dir=plots_dir,
         scheduler_classes=scheduler_classes,
     )
+    plot_distribution_vs_elevators(
+        results,
+        metric="avg_total_time",
+        plots_dir=plots_dir,
+        scheduler_classes=scheduler_classes,
+    )
 
 
 def parse_args():
@@ -451,6 +506,12 @@ def parse_args():
         type=str,
         default=None,
         help="Comma-separated elevator simulation max times, e.g., 1000,1500.",
+    )
+    parser.add_argument(
+        "--request-distribution-list",
+        type=str,
+        default=None,
+        help="Comma-separated request distribution types, e.g., uniform,morning_peak,evening_peak.",
     )
     return parser.parse_args()
 

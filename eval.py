@@ -11,7 +11,7 @@ import argparse
 
 from src.core import Evaluator
 from src.logger import get_logger, set_logger_level
-from src.strategies import FCFSScheduler, SCANScheduler
+from src.strategies import FCFSScheduler, LAHScheduler, SCANScheduler
 
 set_logger_level("INFO")
 logger = get_logger()
@@ -19,6 +19,7 @@ logger = get_logger()
 SCHEDULERS = {
     "fcfs": FCFSScheduler,
     "scan": SCANScheduler,
+    "lah": LAHScheduler,
 }
 
 
@@ -34,6 +35,13 @@ def parse_args():
     parser.add_argument("--experiments", type=int, default=100, help="重复实验次数，取平均指标")
     parser.add_argument("--random-seed", type=int, default=None, help="随机种子；缺省为随机")
     parser.add_argument("--smoothing-load", action="store_true", help="是否平滑分配负载（FCFS 可选）")
+    parser.add_argument(
+        "--request-distribution",
+        type=str,
+        default="uniform",
+        choices=["uniform", "morning_peak", "evening_peak"],
+        help="请求分布类型：uniform（默认），morning_peak（大多数从大堂出发），evening_peak（大多数回到大堂）",
+    )
     return parser.parse_args()
 
 
@@ -50,6 +58,7 @@ if __name__ == "__main__":
         req_max_time=args.req_max_time,
         smoothing_load=args.smoothing_load,
         scheduler_cls=scheduler_cls,
+        request_distribution=args.request_distribution,
     )
 
     results = evaluator.eval_n_experiments(n_exps=args.experiments)

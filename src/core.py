@@ -64,16 +64,42 @@ class EleRequest:
         
     def dropoff(self, current_time):
         self.dropoff_time = current_time
-    
-def create_requests(random_seed, num_requests, num_floors, req_max_time):
+
+
+def _random_floor(num_floors, exclude=None):
+    """Sample a floor in [1, num_floors], optionally excluding one value."""
+    floor = np.random.randint(1, num_floors + 1)
+    while exclude is not None and floor == exclude:
+        floor = np.random.randint(1, num_floors + 1)
+    return floor
+
+
+def create_requests(
+    random_seed,
+    num_requests,
+    num_floors,
+    req_max_time,
+    request_distribution="uniform",
+    peak_ratio=0.8,
+    ground_floor=1,
+):
     if random_seed is not None:
         np.random.seed(random_seed)
     requests = []
     for _ in range(num_requests):
-        start = np.random.randint(1, num_floors + 1)
-        end = np.random.randint(1, num_floors + 1)
-        while end == start:
-            end = np.random.randint(1, num_floors + 1)
+        if request_distribution == "morning_peak":
+            # 大多数人从大堂（ground_floor）出发，去往上方楼层
+            start = ground_floor if np.random.rand() < peak_ratio else _random_floor(num_floors)
+            end = _random_floor(num_floors, exclude=start)
+        elif request_distribution == "evening_peak":
+            # 大多数人去往大堂（ground_floor），起点分布更分散
+            start = _random_floor(num_floors)
+            end = ground_floor if np.random.rand() < peak_ratio else _random_floor(num_floors, exclude=start)
+            if end == start:
+                end = _random_floor(num_floors, exclude=start)
+        else:  # uniform
+            start = _random_floor(num_floors)
+            end = _random_floor(num_floors, exclude=start)
         arrival_time = np.random.randint(0, req_max_time)
         req = EleRequest(start=start, end=end, arrival_time=arrival_time)
         requests.append(req)
@@ -149,6 +175,9 @@ class Evaluator:
                 req_max_time,
                 scheduler_cls,
                 smoothing_load,
+                request_distribution="uniform",
+                peak_ratio=0.8,
+                ground_floor=1,
                 n_exps=1):
         self.n_floors = n_floors
         self.n_elevators = n_elevators
@@ -157,10 +186,16 @@ class Evaluator:
         self.elevators = [Elevator(elevator_id=i+1, capacity=elevator_capacity, n_floors=n_floors) for i in range(n_elevators)]
         self.timer = Timer(max_time=ele_max_time)
         self.random_seed = random_seed
+        self.request_distribution = request_distribution
+        self.peak_ratio = peak_ratio
+        self.ground_floor = ground_floor
         self.requests = create_requests(random_seed=random_seed,
                                         num_requests=n_requests,
                                         num_floors=n_floors,
-                                        req_max_time=req_max_time)
+                                        req_max_time=req_max_time,
+                                        request_distribution=request_distribution,
+                                        peak_ratio=peak_ratio,
+                                        ground_floor=ground_floor)
         self.req_max_time = req_max_time
         self.smoothing_load = smoothing_load
         self.scheduler = scheduler_cls(self.elevators, smoothing_load=smoothing_load)
@@ -177,7 +212,10 @@ class Evaluator:
                           ele_max_time=self.ele_max_time,
                           req_max_time=self.req_max_time,
                           scheduler_cls=type(self.scheduler),
-                          smoothing_load=self.smoothing_load)
+                          smoothing_load=self.smoothing_load,
+                          request_distribution=self.request_distribution,
+                          peak_ratio=self.peak_ratio,
+                          ground_floor=self.ground_floor)
             self.eval()
             results = self.get_results()
             all_results.append(results)
@@ -199,6 +237,9 @@ class Evaluator:
         for current_time in self.timer:
             logger.trace(f"current elevator positions: {[elevator.current_floor for elevator in self.elevators]}")
             logger.trace(f"num of assigned requests per elevator: {[len(elevator.assigned_requests) for elevator in self.elevators]}")
+            if request_index >= len(self.requests) and all(len(elevator.assigned_requests) == 0 for elevator in self.elevators):
+                logger.trace(f"All requests processed by time {current_time}. Ending simulation early.")
+                break
             while (request_index < len(self.requests) and 
                    self.requests[request_index].arrival_time <= current_time):
                 self.scheduler.add_request(self.requests[request_index])

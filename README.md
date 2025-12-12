@@ -22,8 +22,11 @@ ShuangShuang Zou <547685355@qq.com>
   --elevator-capacity 12 \
   --n-requests 80 --req-max-time 120 \
   --ele-max-time 600 --experiments 50 \ 
-  --random-seed 42
+  --random-seed 42 \
+  --request-distribution morning_peak  # uniform|morning_peak|evening_peak
   ```
+- Available schedulers: `scan` (默认), `fcfs`, `lah`（最少停站，评分公式 `score = alpha*dist_start + beta*dist_end - gamma*same_dir`，可设置 lookahead 窗口 N 用于延迟分配、等待未来请求加入比较）
+- Request 分布：`uniform`（默认），`morning_peak`（大多数从大堂出发，向上均匀分布），`evening_peak`（起点均匀，大多数回到大堂）；当前用 1 层代表大堂
 
 ## Grid Search & Visualization（grid_search.py）
 - Default setting:
